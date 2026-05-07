@@ -64,7 +64,7 @@ export function App() {
         )}
       </div>
 
-      <Thumbwheel items={ITEMS} onSelect={setLastTapped} />
+      <Thumbwheel items={ITEMS} onSelect={setLastTapped} enableResize />
     </div>
   );
 }

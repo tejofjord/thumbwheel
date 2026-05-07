@@ -52,12 +52,18 @@ export interface ThumbwheelGeometry {
   innerRadius?: number;
   /** Outer radius of the sector ring. Default `210`. */
   outerRadius?: number;
-  /** Visible arc in radians. Default `Math.PI / 2` (90°). */
+  /** Visible arc in radians. Default `100° in radians` (slightly past a quarter circle). */
   visibleArc?: number;
   /** Trigger button size in pixels. Default `56`. */
   triggerSize?: number;
   /** Inset from screen edge for the trigger. Default `20`. */
   edgeInset?: number;
+  /**
+   * Pixel inset of the wheel's anchor pivot from the screen corner.
+   * Default `0` (wheel goes all the way to the edge + bottom). Increase
+   * to push the wheel inward from the corner.
+   */
+  anchorInset?: number;
 }
 
 /**
@@ -97,6 +103,13 @@ export interface ThumbwheelProps {
   geometry?: ThumbwheelGeometry;
   /** Optional physics overrides. */
   physics?: ThumbwheelPhysics;
+
+  /**
+   * If true, render a draggable handle on the outer arc that resizes the
+   * wheel. The chosen radius persists to localStorage under
+   * `${storageKey}-radius`. Default `false`.
+   */
+  enableResize?: boolean;
 
   /** Accessible labels for the trigger button. */
   triggerLabelOpen?: string;

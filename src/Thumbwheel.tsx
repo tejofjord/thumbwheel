@@ -10,15 +10,24 @@ import type {
 // ── Defaults ──────────────────────────────────────────────────────────
 const DEFAULT_INNER_RADIUS = 130;
 const DEFAULT_OUTER_RADIUS = 210;
-const DEFAULT_VISIBLE_ARC = Math.PI / 2;
+const MIN_OUTER_RADIUS = 120;
+// 100° — slightly past a quarter circle so the wheel's outer arc curls
+// past the natural quadrant. Looks more "wrapped around the corner."
+const DEFAULT_VISIBLE_ARC = (100 * Math.PI) / 180;
 const DEFAULT_TRIGGER_SIZE = 56;
 const DEFAULT_EDGE_INSET = 20;
-const ANCHOR_INSET = 32;
+// Anchor sits AT the screen corner by default — wheel goes all the way
+// to the edge and bottom. Override via geometry.anchorInset.
+const DEFAULT_ANCHOR_INSET = 0;
 const ICON_SIZE = 24;
 const SPIN_THRESHOLD_RAD = 0.04;
 const TRIGGER_DRAG_THRESHOLD_PX = 5;
 const VELOCITY_SAMPLE_WINDOW_MS = 100;
 const TWO_PI = Math.PI * 2;
+// Resize handle geometry
+const HANDLE_RADIUS = 12;
+const HANDLE_OFFSET = 14;
+const RESIZE_STORAGE_SUFFIX = '-radius';
 
 const DEFAULT_FRICTION = 0.95;
 const DEFAULT_MAX_VELOCITY = 0.012;
@@ -140,13 +149,15 @@ export function Thumbwheel(props: ThumbwheelProps) {
     physics = {},
     triggerLabelOpen = 'Close navigation',
     triggerLabelClose = 'Open navigation',
+    enableResize = false,
   } = props;
 
-  const innerRadius = geometry.innerRadius ?? DEFAULT_INNER_RADIUS;
-  const outerRadius = geometry.outerRadius ?? DEFAULT_OUTER_RADIUS;
+  const baseInnerRadius = geometry.innerRadius ?? DEFAULT_INNER_RADIUS;
+  const baseOuterRadius = geometry.outerRadius ?? DEFAULT_OUTER_RADIUS;
   const visibleArc = geometry.visibleArc ?? DEFAULT_VISIBLE_ARC;
   const triggerSize = geometry.triggerSize ?? DEFAULT_TRIGGER_SIZE;
   const edgeInset = geometry.edgeInset ?? DEFAULT_EDGE_INSET;
+  const anchorInset = geometry.anchorInset ?? DEFAULT_ANCHOR_INSET;
   const angleStep = items.length > 0 ? TWO_PI / items.length : 0;
 
   const friction = physics.friction ?? DEFAULT_FRICTION;
@@ -185,9 +196,31 @@ export function Thumbwheel(props: ThumbwheelProps) {
   const momentumFrameRef = useRef<number | null>(null);
   const triggerXRef = useRef(triggerX);
 
+  // User-resizable radius (only mutated when `enableResize` is true).
+  // Outer is the draggable knob; inner tracks proportionally so the
+  // band thickness ratio stays constant as the wheel grows/shrinks.
+  const [outerRadius, setOuterRadius] = useState(baseOuterRadius);
+  const innerRadius = (outerRadius / baseOuterRadius) * baseInnerRadius;
+  const outerRadiusRef = useRef(outerRadius);
+  const radiusStorageKey = `${storageKey}${RESIZE_STORAGE_SUFFIX}`;
+
+  useEffect(() => {
+    outerRadiusRef.current = outerRadius;
+  }, [outerRadius]);
+
   useEffect(() => {
     triggerXRef.current = triggerX;
   }, [triggerX]);
+
+  // Restore saved radius (only when resize is enabled).
+  useEffect(() => {
+    if (!enableResize || typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem(radiusStorageKey);
+    if (saved) {
+      const n = parseFloat(saved);
+      if (!Number.isNaN(n) && n >= MIN_OUTER_RADIUS) setOuterRadius(n);
+    }
+  }, [enableResize, radiusStorageKey]);
 
   // Restore last dock preference from localStorage. Coerce legacy
   // 'center' values (from the three-dock variant in the original
@@ -268,8 +301,8 @@ export function Thumbwheel(props: ThumbwheelProps) {
   }, [viewport.w, dock, snapPoints, isTriggerDragging]);
 
   const isLeftDock = dock === 'left';
-  const anchorX = isLeftDock ? ANCHOR_INSET : viewport.w - ANCHOR_INSET;
-  const anchorY = viewport.h - ANCHOR_INSET;
+  const anchorX = isLeftDock ? anchorInset : viewport.w - anchorInset;
+  const anchorY = viewport.h - anchorInset;
   const direction: 1 | -1 = isLeftDock ? 1 : -1;
 
   const angleFromAnchor = (clientX: number, clientY: number) => {
@@ -449,6 +482,37 @@ export function Thumbwheel(props: ThumbwheelProps) {
     window.addEventListener('pointercancel', onCancel);
   };
 
+  // Drag-to-resize handle. Sits at the middle of the visible arc just
+  // outside the outer edge. Drag radially to grow/shrink the wheel.
+  const handleResizePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - anchorX;
+      const dy = ev.clientY - anchorY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const maxOuter = Math.min(viewport.w, viewport.h) - 16;
+      const newOuter = Math.max(
+        MIN_OUTER_RADIUS,
+        Math.min(maxOuter, dist - HANDLE_OFFSET),
+      );
+      setOuterRadius(newOuter);
+    };
+    const onUp = () => {
+      cleanup();
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(radiusStorageKey, String(outerRadiusRef.current));
+      }
+    };
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
   const wheelRotationDeg = (direction * spinOffset * 180) / Math.PI;
   const iconCounterRotationDeg = -wheelRotationDeg;
 
@@ -610,6 +674,59 @@ export function Thumbwheel(props: ThumbwheelProps) {
                 })}
               </g>
             </g>
+            {/* Resize handle — sits at middle of visible arc, just past
+                the outer edge. Outside the clipped group so it stays
+                visible regardless of wheel rotation. Only rendered when
+                enableResize is true. */}
+            {enableResize && (() => {
+              const handleAngle = visibleArc / 2;
+              const handlePos = polar(
+                anchorX,
+                anchorY,
+                outerRadius + HANDLE_OFFSET,
+                handleAngle,
+                direction,
+              );
+              return (
+                <g
+                  onPointerDown={handleResizePointerDown}
+                  style={{ cursor: 'grab', touchAction: 'none' }}
+                >
+                  <circle
+                    cx={handlePos.x}
+                    cy={handlePos.y}
+                    r={HANDLE_RADIUS + 12}
+                    fill="transparent"
+                  />
+                  <circle
+                    cx={handlePos.x}
+                    cy={handlePos.y}
+                    r={HANDLE_RADIUS}
+                    fill={triggerBg}
+                    stroke={triggerFg}
+                    strokeWidth={2}
+                  />
+                  <line
+                    x1={handlePos.x - 4}
+                    y1={handlePos.y - 2}
+                    x2={handlePos.x + 4}
+                    y2={handlePos.y - 2}
+                    stroke={triggerFg}
+                    strokeWidth={1.5}
+                    strokeLinecap="round"
+                  />
+                  <line
+                    x1={handlePos.x - 4}
+                    y1={handlePos.y + 2}
+                    x2={handlePos.x + 4}
+                    y2={handlePos.y + 2}
+                    stroke={triggerFg}
+                    strokeWidth={1.5}
+                    strokeLinecap="round"
+                  />
+                </g>
+              );
+            })()}
           </svg>
         </div>
       )}
