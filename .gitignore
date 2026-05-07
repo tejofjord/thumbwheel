@@ -1,0 +1,21 @@
+node_modules
+dist
+.turbo
+.vercel
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Build artifacts
+*.tsbuildinfo

@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "./dist-demo",
+    "noEmit": true,
+    "paths": {
+      "thumbwheel": ["../src/index.ts"]
+    }
+  },
+  "include": ["**/*"],
+  "exclude": ["dist-demo", "node_modules"]
+}
