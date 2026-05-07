@@ -223,13 +223,20 @@ export function Thumbwheel(props: ThumbwheelProps) {
     }
   }, [enableResize, radiusStorageKey]);
 
-  // Tick sound on spoke crossings. AudioContext created lazily on the
-  // first tick (which happens during a pointer gesture, satisfying
-  // iOS Safari's user-gesture activation requirement). 25ms sine pop
-  // at 800Hz, 8% volume — softer than the default click-wheel sample.
+  // Tick sound on spoke crossings.
+  //
+  // iOS Safari requires AudioContext to be created/resumed
+  // SYNCHRONOUSLY inside a user-gesture handler. A lazy-creation
+  // approach inside a useEffect (post-commit) silently fails on iOS —
+  // the AudioContext stays in 'suspended' state and no audio plays.
+  // Solution: ensureAudioContext() is called from inside every
+  // pointerdown handler (trigger button + spin backdrop) so creation
+  // happens during a confirmed user gesture. The useEffect only plays
+  // an already-running context.
   const audioContextRef = useRef<AudioContext | null>(null);
   const lastTickIndexRef = useRef(0);
-  const playTick = () => {
+
+  const ensureAudioContext = () => {
     if (!tickSound || typeof window === 'undefined') return;
     try {
       if (audioContextRef.current === null) {
@@ -242,20 +249,30 @@ export function Thumbwheel(props: ThumbwheelProps) {
       }
       const ctx = audioContextRef.current;
       if (ctx.state === 'suspended') void ctx.resume();
+    } catch {
+      // AudioContext unavailable — fail silently.
+    }
+  };
+
+  const playTick = () => {
+    const ctx = audioContextRef.current;
+    if (!ctx || ctx.state !== 'running') return;
+    try {
       const now = ctx.currentTime;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
       osc.frequency.value = 800;
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
       osc.connect(gain).connect(ctx.destination);
       osc.start(now);
-      osc.stop(now + 0.03);
+      osc.stop(now + 0.04);
     } catch {
-      // AudioContext unavailable / blocked — fail silently.
+      // playback failed — silent
     }
   };
+
   useEffect(() => {
     if (!tickSound) return;
     const idx = Math.floor(spinOffset / angleStep);
@@ -263,8 +280,6 @@ export function Thumbwheel(props: ThumbwheelProps) {
       playTick();
       lastTickIndexRef.current = idx;
     }
-    // playTick is intentionally not in deps — it would change every render
-    // since it captures tickSound via closure. tickSound is the gating prop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinOffset, tickSound, angleStep]);
 
@@ -404,6 +419,8 @@ export function Thumbwheel(props: ThumbwheelProps) {
   };
 
   const handleSpinPointerDown = (e: React.PointerEvent) => {
+    // Activate audio synchronously inside the gesture (iOS Safari rule).
+    ensureAudioContext();
     stopMomentum();
     const angle = angleFromAnchor(e.clientX, e.clientY);
     spinDragRef.current = {
@@ -482,6 +499,8 @@ export function Thumbwheel(props: ThumbwheelProps) {
   // Trigger gesture handler — synchronous window listeners (no
   // setPointerCapture, which is unreliable on iOS Safari for <button>).
   const handleTriggerPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    // Activate audio synchronously inside the gesture (iOS Safari rule).
+    ensureAudioContext();
     triggerDragRef.current = {
       startClientX: e.clientX,
       startTriggerX: triggerX,
