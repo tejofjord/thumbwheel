@@ -90,6 +90,37 @@ npm run build        # tsup -> dist/ (ESM + CJS + .d.ts)
 npm run typecheck
 ```
 
+## Known constraints
+
+A few things you'll trip on otherwise:
+
+- **iOS hardware silent switch overrides `tickSound`.** Web Audio respects iOS's hardware silent toggle (the orange-dot switch on the side of the phone). When silent mode is on, ticks won't play regardless of any `AudioContext` setup. There's no clean web workaround — flip the switch to ring mode to test audio. The library still creates the AudioContext synchronously in pointerdown so it's correctly activated for iOS's user-gesture rule; this is purely a hardware mute.
+
+- **iOS Safari address-bar extension needs `viewport-fit=cover`.** The wheel uses `100lvh` and a probe-based viewport detection so it can extend behind iOS Safari's bottom address bar. For that to actually render edge-to-edge (rather than getting cropped at the safe-area boundary), the host page must opt into edge-to-edge layout via the viewport meta tag:
+
+  ```ts
+  // Next.js 15+ App Router
+  export const viewport: Viewport = { viewportFit: 'cover' };
+  ```
+
+  ```html
+  <!-- plain HTML -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  ```
+
+- **Local LAN dev (testing on a real phone) needs `allowedDevOrigins`.** Next.js 16 blocks cross-origin requests to `/_next/static/*` by default. A page served at `localhost:3000` is treated as a different origin from `192.168.1.x:3000`, so a phone hitting the LAN IP gets HTML but no JS. Add this to your Next config:
+
+  ```ts
+  // next.config.ts
+  module.exports = {
+    allowedDevOrigins: ['192.168.*.*', '10.*.*.*', '172.16.*.*'],
+  };
+  ```
+
+- **`'use client'` is on the component file.** The build preserves the directive in both ESM and CJS output, so consumers in Next.js App Router server-component trees can `import { Thumbwheel } from 'thumbwheel'` directly without wrapping it in a custom client component.
+
+- **localStorage access is guarded for SSR.** The component checks `typeof window === 'undefined'` before reading dock or radius preferences, so a server-render won't throw.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).
