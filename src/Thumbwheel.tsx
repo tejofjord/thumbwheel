@@ -236,12 +236,33 @@ export function Thumbwheel(props: ThumbwheelProps) {
     }
   }, [storageKey]);
 
+  // Track viewport for anchor + snap math.
+  //
+  // On iOS Safari the bottom address bar sits OVER the page (browser
+  // chrome, not page content). `window.innerHeight` is the SMALL
+  // viewport — i.e. excludes the area behind the bar. Probe `100lvh`
+  // (large viewport, supported in iOS Safari 15.4+) to get the full
+  // screen height including the bar's territory, and use that as
+  // viewport.h so the wheel extends BELOW the bar. Re-probe on
+  // visualViewport resize (bar shows/hides as the user scrolls).
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const update = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    const update = () => {
+      const probe = document.createElement('div');
+      probe.style.cssText =
+        'position:fixed;top:0;height:100lvh;visibility:hidden;pointer-events:none;width:1px;';
+      document.body.appendChild(probe);
+      const lvh = probe.offsetHeight || window.innerHeight;
+      document.body.removeChild(probe);
+      setViewport({ w: window.innerWidth, h: lvh });
+    };
     update();
     window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
+    window.visualViewport?.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('resize', update);
+    };
   }, []);
 
   // Stop momentum on close + on unmount.
@@ -562,8 +583,15 @@ export function Thumbwheel(props: ThumbwheelProps) {
           onPointerUp={handleSpinPointerUp}
           onPointerCancel={handleSpinPointerUp}
           style={{
+            // Explicit positioning + 100lvh (NOT inset:0) so the
+            // wrapper extends behind iOS Safari's bottom address bar.
+            // viewport.h is set to lvh by the resize useEffect so the
+            // SVG coord system matches.
             position: 'fixed',
-            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            height: '100lvh',
             zIndex: 40,
             touchAction: 'none',
           }}
@@ -613,8 +641,9 @@ export function Thumbwheel(props: ThumbwheelProps) {
                   const midAngle = (a1 + a2) / 2;
                   const iconRadius = (innerRadius + outerRadius) / 2;
                   const iconPos = polar(anchorX, anchorY, iconRadius, midAngle, direction);
+                  // Per-item color overrides the alternating fallback.
                   const isEven = i % 2 === 0;
-                  const sectorFill = isEven ? evenSectorFill : oddSectorFill;
+                  const sectorFill = item.color ?? (isEven ? evenSectorFill : oddSectorFill);
                   return (
                     <g
                       key={item.id}

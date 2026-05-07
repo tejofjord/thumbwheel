@@ -20,17 +20,21 @@ function Icon({ d }: { d: string }): ReactNode {
   );
 }
 
+// Desaturated, low-chroma palette — distinct sectors without a rainbow
+// look. Reads as a curated set of natural pigments rather than primary
+// colors. Each value picked for adjacent-sector contrast (even/odd
+// alternation visually grouped while remaining individually identifiable).
 const ITEMS: ThumbwheelItem[] = [
-  { id: 'home', label: 'Home', icon: <Icon d="M3 11l9-8 9 8v10a2 2 0 0 1-2 2h-4v-7H9v7H5a2 2 0 0 1-2-2z" /> },
-  { id: 'news', label: 'News', icon: <Icon d="M4 4h12v16H4zM16 8h4v12h-4M8 8h4M8 12h4M8 16h4" /> },
-  { id: 'learn', label: 'Learn', icon: <Icon d="M22 10L12 4 2 10l10 6 10-6zM6 12v5c3 2 9 2 12 0v-5" /> },
-  { id: 'directory', label: 'Directory', icon: <Icon d="M4 4h16v4H4zM4 10h16v4H4zM4 16h16v4H4z" /> },
-  { id: 'projects', label: 'Projects', icon: <Icon d="M3 7h18v13H3zM8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /> },
-  { id: 'books', label: 'Books', icon: <Icon d="M4 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H4zM20 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z" /> },
-  { id: 'profile', label: 'Profile', icon: <Icon d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" /> },
-  { id: 'help', label: 'Help', icon: <Icon d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20zM9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01" /> },
-  { id: 'settings', label: 'Settings', icon: <Icon d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /> },
-  { id: 'login', label: 'Sign in', icon: <Icon d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" /> },
+  { id: 'home',      label: 'Home',      color: '#f5e9d4', icon: <Icon d="M3 11l9-8 9 8v10a2 2 0 0 1-2 2h-4v-7H9v7H5a2 2 0 0 1-2-2z" /> },
+  { id: 'news',      label: 'News',      color: '#dde2d7', icon: <Icon d="M4 4h12v16H4zM16 8h4v12h-4M8 8h4M8 12h4M8 16h4" /> },
+  { id: 'learn',     label: 'Learn',     color: '#e8dfc8', icon: <Icon d="M22 10L12 4 2 10l10 6 10-6zM6 12v5c3 2 9 2 12 0v-5" /> },
+  { id: 'directory', label: 'Directory', color: '#cfd6d0', icon: <Icon d="M4 4h16v4H4zM4 10h16v4H4zM4 16h16v4H4z" /> },
+  { id: 'projects',  label: 'Projects',  color: '#e3cfb5', icon: <Icon d="M3 7h18v13H3zM8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /> },
+  { id: 'books',     label: 'Books',     color: '#d4c8be', icon: <Icon d="M4 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H4zM20 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z" /> },
+  { id: 'profile',   label: 'Profile',   color: '#e7e0e0', icon: <Icon d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" /> },
+  { id: 'help',      label: 'Help',      color: '#c9d2d2', icon: <Icon d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20zM9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01" /> },
+  { id: 'settings',  label: 'Settings',  color: '#dcd3c5', icon: <Icon d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /> },
+  { id: 'login',     label: 'Sign in',   color: '#ece4d3', icon: <Icon d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" /> },
 ];
 
 export function App() {

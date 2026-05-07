@@ -12,6 +12,13 @@ export interface ThumbwheelItem {
   id: string;
   label: string;
   icon?: ReactNode;
+  /**
+   * Per-item background fill (any CSS color string). When set, this
+   * overrides the alternating even/odd sector fill from `theme`. Useful
+   * for category-coding sectors. Hex strings recommended for consistent
+   * rendering inside the SVG.
+   */
+  color?: string;
 }
 
 /** Which side of the screen the trigger button docks on. */
