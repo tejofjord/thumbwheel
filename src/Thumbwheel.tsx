@@ -150,6 +150,7 @@ export function Thumbwheel(props: ThumbwheelProps) {
     triggerLabelOpen = 'Close navigation',
     triggerLabelClose = 'Open navigation',
     enableResize = false,
+    tickSound = false,
   } = props;
 
   const baseInnerRadius = geometry.innerRadius ?? DEFAULT_INNER_RADIUS;
@@ -221,6 +222,51 @@ export function Thumbwheel(props: ThumbwheelProps) {
       if (!Number.isNaN(n) && n >= MIN_OUTER_RADIUS) setOuterRadius(n);
     }
   }, [enableResize, radiusStorageKey]);
+
+  // Tick sound on spoke crossings. AudioContext created lazily on the
+  // first tick (which happens during a pointer gesture, satisfying
+  // iOS Safari's user-gesture activation requirement). 25ms sine pop
+  // at 800Hz, 8% volume — softer than the default click-wheel sample.
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const lastTickIndexRef = useRef(0);
+  const playTick = () => {
+    if (!tickSound || typeof window === 'undefined') return;
+    try {
+      if (audioContextRef.current === null) {
+        const Ctor =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext?: typeof AudioContext })
+            .webkitAudioContext;
+        if (!Ctor) return;
+        audioContextRef.current = new Ctor();
+      }
+      const ctx = audioContextRef.current;
+      if (ctx.state === 'suspended') void ctx.resume();
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 800;
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.03);
+    } catch {
+      // AudioContext unavailable / blocked — fail silently.
+    }
+  };
+  useEffect(() => {
+    if (!tickSound) return;
+    const idx = Math.floor(spinOffset / angleStep);
+    if (idx !== lastTickIndexRef.current) {
+      playTick();
+      lastTickIndexRef.current = idx;
+    }
+    // playTick is intentionally not in deps — it would change every render
+    // since it captures tickSound via closure. tickSound is the gating prop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spinOffset, tickSound, angleStep]);
 
   // Restore last dock preference from localStorage. Coerce legacy
   // 'center' values (from the three-dock variant in the original

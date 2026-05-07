@@ -118,6 +118,15 @@ export interface ThumbwheelProps {
    */
   enableResize?: boolean;
 
+  /**
+   * If true, play a short tick sound (Web Audio sine pop) every time a
+   * spoke crosses the visible window's edge — approximates iOS
+   * PickerView / iPod click-wheel tactility. AudioContext is created
+   * lazily on first tick and respects iOS user-gesture activation.
+   * Default `false`.
+   */
+  tickSound?: boolean;
+
   /** Accessible labels for the trigger button. */
   triggerLabelOpen?: string;
   triggerLabelClose?: string;
