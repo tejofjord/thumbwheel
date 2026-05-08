@@ -24,10 +24,12 @@ const SPIN_THRESHOLD_RAD = 0.04;
 const TRIGGER_DRAG_THRESHOLD_PX = 5;
 const VELOCITY_SAMPLE_WINDOW_MS = 100;
 const TWO_PI = Math.PI * 2;
-// Resize handle geometry
-const HANDLE_RADIUS = 12;
-const HANDLE_OFFSET = 14;
 const RESIZE_STORAGE_SUFFIX = '-radius';
+const DEFAULT_OUTER_BAND_WIDTH = 5;
+// Resize-bump geometry defaults — exposed via geometry.resizeHandle*.
+const DEFAULT_RESIZE_HANDLE_HEIGHT = 14;
+const DEFAULT_RESIZE_HANDLE_BASE_ARC = 0.18;
+const DEFAULT_RESIZE_HANDLE_TOP_ARC = 0.10;
 
 const DEFAULT_FRICTION = 0.95;
 const DEFAULT_MAX_VELOCITY = 0.012;
@@ -45,6 +47,9 @@ const DEFAULTS = {
   triggerBg: '#1c1917',
   triggerFg: '#fafaf9',
   backdrop: 'rgba(0,0,0,0.4)',
+  // resizeHandle* tokens cascade from other theme tokens (baseFill,
+  // evenSectorFill, spoke, textColor) so the bump inherits the wheel's
+  // color identity automatically. See destructuring below.
 } as const;
 
 // ── SVG path helpers ──────────────────────────────────────────────────
@@ -80,6 +85,38 @@ function annularSectorPath(
     `A ${rOut} ${rOut} 0 ${largeArc} ${sweepOuter} ${eo.x} ${eo.y}`,
     `L ${ei.x} ${ei.y}`,
     `A ${rIn} ${rIn} 0 ${largeArc} ${sweepInner} ${si.x} ${si.y}`,
+    'Z',
+  ].join(' ');
+}
+
+// Trapezoidal bump on the outer rim. The inner edge follows the rim
+// arc (between `innerA1` and `innerA2`); the outer face is a smaller
+// concentric arc (between `outerA1` and `outerA2`); the two `L` segments
+// connecting them are the angled side cuts that taper the bump back into
+// the wheel surface.
+function bumpPath(
+  cx: number,
+  cy: number,
+  rIn: number,
+  rOut: number,
+  innerA1: number,
+  innerA2: number,
+  outerA1: number,
+  outerA2: number,
+  direction: 1 | -1,
+): string {
+  const innerStart = polar(cx, cy, rIn, innerA1, direction);
+  const innerEnd = polar(cx, cy, rIn, innerA2, direction);
+  const outerStart = polar(cx, cy, rOut, outerA1, direction);
+  const outerEnd = polar(cx, cy, rOut, outerA2, direction);
+  const sweepOuter = direction === -1 ? 0 : 1;
+  const sweepInner = sweepOuter === 0 ? 1 : 0;
+  return [
+    `M ${innerStart.x} ${innerStart.y}`,
+    `L ${outerStart.x} ${outerStart.y}`,
+    `A ${rOut} ${rOut} 0 0 ${sweepOuter} ${outerEnd.x} ${outerEnd.y}`,
+    `L ${innerEnd.x} ${innerEnd.y}`,
+    `A ${rIn} ${rIn} 0 0 ${sweepInner} ${innerStart.x} ${innerStart.y}`,
     'Z',
   ].join(' ');
 }
@@ -151,6 +188,9 @@ export function Thumbwheel(props: ThumbwheelProps) {
     triggerLabelClose = 'Open navigation',
     enableResize = false,
     tickSound = false,
+    rows = 1,
+    fixed = false,
+    maxItemAspectRatio = 1.0,
   } = props;
 
   const baseInnerRadius = geometry.innerRadius ?? DEFAULT_INNER_RADIUS;
@@ -159,7 +199,17 @@ export function Thumbwheel(props: ThumbwheelProps) {
   const triggerSize = geometry.triggerSize ?? DEFAULT_TRIGGER_SIZE;
   const edgeInset = geometry.edgeInset ?? DEFAULT_EDGE_INSET;
   const anchorInset = geometry.anchorInset ?? DEFAULT_ANCHOR_INSET;
-  const angleStep = items.length > 0 ? TWO_PI / items.length : 0;
+  const outerBandWidth = geometry.outerBandWidth ?? DEFAULT_OUTER_BAND_WIDTH;
+  // Inner band width cascades from outer band width by default — so
+  // setting `outerBandWidth` alone keeps the framing symmetric without
+  // needing to also set `innerBandWidth`.
+  const innerBandWidth = geometry.innerBandWidth ?? outerBandWidth;
+  const resizeHandleHeight =
+    geometry.resizeHandleHeight ?? DEFAULT_RESIZE_HANDLE_HEIGHT;
+  const resizeHandleBaseArc =
+    geometry.resizeHandleBaseArc ?? DEFAULT_RESIZE_HANDLE_BASE_ARC;
+  const resizeHandleTopArc =
+    geometry.resizeHandleTopArc ?? DEFAULT_RESIZE_HANDLE_TOP_ARC;
 
   const friction = physics.friction ?? DEFAULT_FRICTION;
   const maxVelocity = physics.maxVelocity ?? DEFAULT_MAX_VELOCITY;
@@ -175,6 +225,32 @@ export function Thumbwheel(props: ThumbwheelProps) {
   const triggerBg = theme.triggerBg ?? DEFAULTS.triggerBg;
   const triggerFg = theme.triggerFg ?? DEFAULTS.triggerFg;
   const backdrop = theme.backdrop ?? DEFAULTS.backdrop;
+  // The outer band fill cascades from baseFill (was the wedge underlay
+  // tone before the donut hole was made transparent — now exclusively
+  // serves as the matte/halo color around the rim).
+  const outerBandFill = theme.outerBandFill ?? baseFill;
+  // Inner band fill cascades from outer band fill, so symmetric framing
+  // requires only setting one token.
+  const innerBandFill = theme.innerBandFill ?? outerBandFill;
+  // Bump tokens cascade from primary wheel tokens so the resize handle
+  // inherits the wheel's identity (and stays integrated visually) unless
+  // a consumer explicitly overrides.
+  const resizeHandleFill = theme.resizeHandleFill ?? baseFill;
+  const resizeHandleHighlight = theme.resizeHandleHighlight ?? evenSectorFill;
+  const resizeHandleShadow = theme.resizeHandleShadow ?? spoke;
+  const resizeHandleGrip = theme.resizeHandleGrip ?? textColor;
+
+  // Split items across rings. Outer ring gets the first half (rounded up
+  // so an odd count puts the extra item outward, which reads better at
+  // the wider outer radius). Each ring keeps its own angular step so the
+  // counts can differ — visual misalignment between rings during a spin
+  // is intentional knurled-wheel texture, not a bug.
+  const ringCount: 1 | 2 = rows === 2 ? 2 : 1;
+  const itemRings = useMemo<ThumbwheelItem[][]>(() => {
+    if (ringCount === 1) return [items];
+    const split = Math.ceil(items.length / 2);
+    return [items.slice(0, split), items.slice(split)];
+  }, [items, ringCount]);
 
   const [isOpen, setIsOpen] = useState(false);
   const [spinOffset, setSpinOffset] = useState(0);
@@ -198,12 +274,80 @@ export function Thumbwheel(props: ThumbwheelProps) {
   const triggerXRef = useRef(triggerX);
 
   // User-resizable radius (only mutated when `enableResize` is true).
-  // Outer is the draggable knob; inner tracks proportionally so the
-  // band thickness ratio stays constant as the wheel grows/shrinks.
+  // Outer is the draggable knob; inner stays a FIXED radial distance
+  // from outer (the band thickness is constant — the wheel does not
+  // scale, it grows/shrinks by translating the inner edge with the
+  // outer). The fixed thickness is derived from the consumer's initial
+  // base geometry so the resting visual is preserved.
   const [outerRadius, setOuterRadius] = useState(baseOuterRadius);
-  const innerRadius = (outerRadius / baseOuterRadius) * baseInnerRadius;
+  const ringBandThickness = baseOuterRadius - baseInnerRadius;
+  const innerRadius = Math.max(0, outerRadius - ringBandThickness);
   const outerRadiusRef = useRef(outerRadius);
   const radiusStorageKey = `${storageKey}${RESIZE_STORAGE_SUFFIX}`;
+
+  // Per-ring rendering plan. Bundles everything the render path needs:
+  // resolved (rIn, rOut), the angular step, and the array of items to
+  // actually render (which may repeat unique items in spin mode if the
+  // max aspect ratio constraint kicks in). Spin mode: items wrap around
+  // 2π and may repeat; if the natural step would produce sectors wider
+  // than `maxItemAspectRatio` at the outer rim, we expand the slot
+  // count to `items.length * ceil(naturalStep / maxStep)` so every
+  // item appears the same number of times (repeats are evenly
+  // distributed). Fixed mode: items always span exactly `visibleArc`
+  // with no repetition.
+  type RingDisplay = {
+    items: ThumbwheelItem[];
+    step: number;
+    rIn: number;
+    rOut: number;
+  };
+  const ringDisplays = useMemo<RingDisplay[]>(() => {
+    const bandThickness = (outerRadius - innerRadius) / ringCount;
+    return itemRings.map((rItems, ringIdx) => {
+      const rOut = outerRadius - ringIdx * bandThickness;
+      const rIn = rOut - bandThickness;
+      if (rItems.length === 0) {
+        return { items: [], step: 0, rIn, rOut };
+      }
+      if (fixed) {
+        return {
+          items: rItems,
+          step: visibleArc / rItems.length,
+          rIn,
+          rOut,
+        };
+      }
+      const naturalStep = TWO_PI / rItems.length;
+      const ringBand = rOut - rIn;
+      // Effective max step from the aspect-ratio cap. Guard against
+      // a non-positive cap (which would imply infinite slots).
+      const maxStep =
+        maxItemAspectRatio > 0
+          ? (maxItemAspectRatio * ringBand) / rOut
+          : naturalStep;
+      if (naturalStep <= maxStep) {
+        return { items: rItems, step: naturalStep, rIn, rOut };
+      }
+      const repeats = Math.ceil(naturalStep / maxStep);
+      const slotCount = rItems.length * repeats;
+      const step = TWO_PI / slotCount;
+      const displayItems = Array.from(
+        { length: slotCount },
+        (_, i) => rItems[i % rItems.length] as ThumbwheelItem,
+      );
+      return { items: displayItems, step, rIn, rOut };
+    });
+  }, [
+    itemRings,
+    ringCount,
+    outerRadius,
+    innerRadius,
+    fixed,
+    visibleArc,
+    maxItemAspectRatio,
+  ]);
+  // Tick-sound effect samples the OUTER ring's step. Ring 0 is outer.
+  const angleStep = ringDisplays[0]?.step ?? 0;
 
   useEffect(() => {
     outerRadiusRef.current = outerRadius;
@@ -274,14 +418,14 @@ export function Thumbwheel(props: ThumbwheelProps) {
   };
 
   useEffect(() => {
-    if (!tickSound) return;
+    if (!tickSound || fixed || angleStep === 0) return;
     const idx = Math.floor(spinOffset / angleStep);
     if (idx !== lastTickIndexRef.current) {
       playTick();
       lastTickIndexRef.current = idx;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spinOffset, tickSound, angleStep]);
+  }, [spinOffset, tickSound, angleStep, fixed]);
 
   // Restore last dock preference from localStorage. Coerce legacy
   // 'center' values (from the three-dock variant in the original
@@ -420,7 +564,10 @@ export function Thumbwheel(props: ThumbwheelProps) {
 
   const handleSpinPointerDown = (e: React.PointerEvent) => {
     // Activate audio synchronously inside the gesture (iOS Safari rule).
+    // Done even in fixed mode so audio is ready if the consumer toggles
+    // back to spin without a fresh gesture.
     ensureAudioContext();
+    if (fixed) return;
     stopMomentum();
     const angle = angleFromAnchor(e.clientX, e.clientY);
     spinDragRef.current = {
@@ -568,10 +715,18 @@ export function Thumbwheel(props: ThumbwheelProps) {
     window.addEventListener('pointercancel', onCancel);
   };
 
-  // Drag-to-resize handle. Sits at the middle of the visible arc just
-  // outside the outer edge. Drag radially to grow/shrink the wheel.
+  // Drag-to-resize handle. Sits at the middle of the visible arc on the
+  // outer rim (rendered as a skeu bump). Drag radially to grow/shrink.
   const handleResizePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
+    // Capture the grab offset so wherever the user grabs on the bump
+    // (top, edge, slope), the wheel follows the cursor's RELATIVE motion
+    // instead of snapping its rim under the cursor.
+    const dx0 = e.clientX - anchorX;
+    const dy0 = e.clientY - anchorY;
+    const startDist = Math.sqrt(dx0 * dx0 + dy0 * dy0);
+    const grabOffset = startDist - outerRadiusRef.current;
+
     const onMove = (ev: PointerEvent) => {
       const dx = ev.clientX - anchorX;
       const dy = ev.clientY - anchorY;
@@ -579,7 +734,7 @@ export function Thumbwheel(props: ThumbwheelProps) {
       const maxOuter = Math.min(viewport.w, viewport.h) - 16;
       const newOuter = Math.max(
         MIN_OUTER_RADIUS,
-        Math.min(maxOuter, dist - HANDLE_OFFSET),
+        Math.min(maxOuter, dist - grabOffset),
       );
       setOuterRadius(newOuter);
     };
@@ -599,12 +754,22 @@ export function Thumbwheel(props: ThumbwheelProps) {
     window.addEventListener('pointercancel', onUp);
   };
 
-  const wheelRotationDeg = (direction * spinOffset * 180) / Math.PI;
+  // In fixed mode the wheel doesn't rotate, so spinOffset is forced to
+  // 0 for rendering. The state is left intact so tickSound + momentum
+  // resume cleanly if the consumer toggles back to spin without a
+  // remount.
+  const renderSpinOffset = fixed ? 0 : spinOffset;
+  const wheelRotationDeg = (direction * renderSpinOffset * 180) / Math.PI;
   const iconCounterRotationDeg = -wheelRotationDeg;
 
-  // Stable clipPath id per component instance so multiple wheels on the
-  // same page don't collide.
-  const clipId = useMemo(() => `thumbwheel-clip-${Math.random().toString(36).slice(2, 9)}`, []);
+  // Stable per-instance ids so multiple wheels on the same page don't
+  // collide on clipPath / gradient references.
+  const instanceId = useMemo(
+    () => Math.random().toString(36).slice(2, 9),
+    [],
+  );
+  const clipId = `thumbwheel-clip-${instanceId}`;
+  const bumpGradientId = `thumbwheel-bump-grad-${instanceId}`;
 
   return (
     <>
@@ -684,140 +849,302 @@ export function Thumbwheel(props: ThumbwheelProps) {
               <clipPath id={clipId}>
                 <path d={wedgeClipPath(anchorX, anchorY, outerRadius + 4, visibleArc, direction)} />
               </clipPath>
+              {/* Skeu bump gradient — radial light direction, mapped to
+                  user-space coords so it tracks the bump position even as
+                  outerRadius changes. */}
+              {enableResize && (() => {
+                const handleAngle = visibleArc / 2;
+                const innerCenter = polar(anchorX, anchorY, outerRadius, handleAngle, direction);
+                const outerCenter = polar(
+                  anchorX,
+                  anchorY,
+                  outerRadius + resizeHandleHeight,
+                  handleAngle,
+                  direction,
+                );
+                return (
+                  <linearGradient
+                    id={bumpGradientId}
+                    gradientUnits="userSpaceOnUse"
+                    x1={innerCenter.x}
+                    y1={innerCenter.y}
+                    x2={outerCenter.x}
+                    y2={outerCenter.y}
+                  >
+                    <stop offset="0%" stopColor={resizeHandleFill} />
+                    <stop offset="100%" stopColor={resizeHandleHighlight} />
+                  </linearGradient>
+                );
+              })()}
             </defs>
             <g clipPath={`url(#${clipId})`}>
-              <path
-                d={wedgeClipPath(anchorX, anchorY, outerRadius + 4, visibleArc, direction)}
-                fill={baseFill}
-              />
-              <g transform={`rotate(${wheelRotationDeg} ${anchorX} ${anchorY})`}>
-                {items.map((item, i) => {
-                  const a1 = i * angleStep;
-                  const a2 = (i + 1) * angleStep;
-                  const path = annularSectorPath(
-                    anchorX,
-                    anchorY,
-                    innerRadius,
-                    outerRadius,
-                    a1,
-                    a2,
-                    direction,
-                  );
-                  const midAngle = (a1 + a2) / 2;
-                  const iconRadius = (innerRadius + outerRadius) / 2;
-                  const iconPos = polar(anchorX, anchorY, iconRadius, midAngle, direction);
-                  // Per-item color overrides the alternating fallback.
-                  const isEven = i % 2 === 0;
-                  const sectorFill = item.color ?? (isEven ? evenSectorFill : oddSectorFill);
+              <g
+                transform={
+                  fixed
+                    ? undefined
+                    : `rotate(${wheelRotationDeg} ${anchorX} ${anchorY})`
+                }
+              >
+                {ringDisplays.map((ring, ringIndex) => {
+                  const { items: ringItems, step: ringStep, rIn, rOut } = ring;
                   return (
-                    <g
-                      key={item.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (spinDragRef.current?.moved) return;
-                        handleSelect(item);
-                      }}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <path
-                        d={path}
-                        fill={sectorFill}
-                        stroke={spoke}
-                        strokeWidth={spokeWidth}
-                        strokeLinejoin="round"
-                      />
-                      <g
-                        transform={`translate(${iconPos.x} ${iconPos.y}) rotate(${iconCounterRotationDeg})`}
-                        style={{ pointerEvents: 'none' }}
-                      >
-                        {item.icon ? (
-                          <foreignObject
-                            x={-ICON_SIZE / 2}
-                            y={-ICON_SIZE / 2 - 6}
-                            width={ICON_SIZE}
-                            height={ICON_SIZE}
+                    <g key={ringIndex}>
+                      {ringItems.map((item, i) => {
+                        const a1 = i * ringStep;
+                        const a2 = (i + 1) * ringStep;
+                        const path = annularSectorPath(
+                          anchorX,
+                          anchorY,
+                          rIn,
+                          rOut,
+                          a1,
+                          a2,
+                          direction,
+                        );
+                        const midAngle = (a1 + a2) / 2;
+                        const iconRadius = (rIn + rOut) / 2;
+                        const iconPos = polar(anchorX, anchorY, iconRadius, midAngle, direction);
+                        // Per-item color overrides the alternating fallback.
+                        const isEven = i % 2 === 0;
+                        const sectorFill = item.color ?? (isEven ? evenSectorFill : oddSectorFill);
+                        return (
+                          // Position-based key — items can repeat in spin
+                          // mode (max-aspect-ratio expansion), so item.id
+                          // is not unique across sectors.
+                          <g
+                            key={`${ringIndex}-${i}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (spinDragRef.current?.moved) return;
+                              handleSelect(item);
+                            }}
+                            style={{ cursor: 'pointer' }}
                           >
-                            <div
-                              style={{
-                                width: '100%',
-                                height: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: textColor,
-                              }}
+                            <path
+                              d={path}
+                              fill={sectorFill}
+                              stroke={spoke}
+                              strokeWidth={spokeWidth}
+                              strokeLinejoin="round"
+                            />
+                            <g
+                              transform={`translate(${iconPos.x} ${iconPos.y}) rotate(${iconCounterRotationDeg})`}
+                              style={{ pointerEvents: 'none' }}
                             >
-                              {item.icon as ReactNode}
-                            </div>
-                          </foreignObject>
-                        ) : null}
-                        <text
-                          y={ICON_SIZE / 2 + 6}
-                          textAnchor="middle"
-                          fill={textColor}
-                          style={{
-                            fontSize: '9px',
-                            fontFamily: 'inherit',
-                          }}
-                        >
-                          {item.label}
-                        </text>
-                      </g>
+                              {item.icon ? (
+                                <foreignObject
+                                  x={-ICON_SIZE / 2}
+                                  y={-ICON_SIZE / 2 - 6}
+                                  width={ICON_SIZE}
+                                  height={ICON_SIZE}
+                                >
+                                  <div
+                                    style={{
+                                      width: '100%',
+                                      height: '100%',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      color: textColor,
+                                    }}
+                                  >
+                                    {item.icon as ReactNode}
+                                  </div>
+                                </foreignObject>
+                              ) : null}
+                              <text
+                                y={ICON_SIZE / 2 + 6}
+                                textAnchor="middle"
+                                fill={textColor}
+                                style={{
+                                  fontSize: '9px',
+                                  fontFamily: 'inherit',
+                                }}
+                              >
+                                {item.label}
+                              </text>
+                            </g>
+                          </g>
+                        );
+                      })}
                     </g>
                   );
                 })}
               </g>
+              {/* Inner-arc boundary stroke. The donut hole is now
+                  transparent (the wedge-fill underlay was dropped so the
+                  blurred backdrop shows through), so we draw an explicit
+                  arc at innerRadius matching the outer rim's stroke
+                  treatment. Outside the rotated group — the inner edge
+                  of the donut is fixed, it does not spin with the wheel.
+                  Stays inside the clipped group so it still respects the
+                  visible-arc wedge. */}
+              {(() => {
+                const start = polar(anchorX, anchorY, innerRadius, 0, direction);
+                const end = polar(anchorX, anchorY, innerRadius, visibleArc, direction);
+                const sweep = direction === -1 ? 0 : 1;
+                const innerArcD =
+                  `M ${start.x} ${start.y} ` +
+                  `A ${innerRadius} ${innerRadius} 0 0 ${sweep} ${end.x} ${end.y}`;
+                return (
+                  <path
+                    d={innerArcD}
+                    fill="none"
+                    stroke={spoke}
+                    strokeWidth={spokeWidth}
+                    strokeLinecap="round"
+                  />
+                );
+              })()}
             </g>
-            {/* Resize handle — sits at middle of visible arc, just past
-                the outer edge. Outside the clipped group so it stays
-                visible regardless of wheel rotation. Only rendered when
-                enableResize is true. */}
+            {/* Outer-band matte — a thin halo of `outerBandFill` between
+                the rim and a parallel circumference at
+                `outerRadius + outerBandWidth`. Frames the wheel against
+                the backdrop without using a heavy stroke. Outside the
+                clipped group so it renders fully; placed BEFORE the bump
+                in document order so the bump (which protrudes through
+                the band region) renders on top. Skipped when the band
+                width is 0. */}
+            {outerBandWidth > 0 && (
+              <path
+                d={annularSectorPath(
+                  anchorX,
+                  anchorY,
+                  outerRadius,
+                  outerRadius + outerBandWidth,
+                  0,
+                  visibleArc,
+                  direction,
+                )}
+                fill={outerBandFill}
+              />
+            )}
+            {/* Inner-band matte — mirrors the outer band on the donut-
+                hole side. Sits between `innerRadius - innerBandWidth`
+                and `innerRadius`. Same construction (annular sector,
+                clipped naturally by its own angular range, rendered
+                outside the wheel's clip group). Skipped when width is
+                zero or would push the band's inner edge below zero. */}
+            {innerBandWidth > 0 && innerRadius - innerBandWidth > 0 && (
+              <path
+                d={annularSectorPath(
+                  anchorX,
+                  anchorY,
+                  innerRadius - innerBandWidth,
+                  innerRadius,
+                  0,
+                  visibleArc,
+                  direction,
+                )}
+                fill={innerBandFill}
+              />
+            )}
+            {/* Lateral edge borders — short radial strokes from the inner
+                arc to the outer rim at the two visible-arc boundaries.
+                Placed OUTSIDE the clipped group so a stroke that sits on
+                the clip boundary renders at full width (a centered stroke
+                inside the clip would lose its outer half to the clip
+                cut). Together with the inner-arc stroke and the
+                sector-formed outer rim, these close the annular frame
+                around the wheel. */}
+            {(() => {
+              const sides: [number, number] = [0, visibleArc];
+              return sides.map((a, i) => {
+                const inner = polar(anchorX, anchorY, innerRadius, a, direction);
+                const outer = polar(anchorX, anchorY, outerRadius, a, direction);
+                return (
+                  <line
+                    key={i}
+                    x1={inner.x}
+                    y1={inner.y}
+                    x2={outer.x}
+                    y2={outer.y}
+                    stroke={spoke}
+                    strokeWidth={spokeWidth}
+                    strokeLinecap="round"
+                  />
+                );
+              });
+            })()}
+            {/* Resize handle — skeuomorphic bump on the outer rim.
+                Trapezoidal protrusion with chamfered side cuts that taper
+                back into the wheel. Filled with a radial linearGradient
+                (light at the outer face, darker at the base) for raised
+                3D depth, plus a chiseled outline stroke. Rendered outside
+                the clipped + rotated wheel group so it stays at the
+                middle of the visible arc regardless of wheel rotation. */}
             {enableResize && (() => {
               const handleAngle = visibleArc / 2;
-              const handlePos = polar(
+              const baseHalf = resizeHandleBaseArc / 2;
+              const topHalf = resizeHandleTopArc / 2;
+              const bumpD = bumpPath(
                 anchorX,
                 anchorY,
-                outerRadius + HANDLE_OFFSET,
-                handleAngle,
+                outerRadius,
+                outerRadius + resizeHandleHeight,
+                handleAngle - baseHalf,
+                handleAngle + baseHalf,
+                handleAngle - topHalf,
+                handleAngle + topHalf,
                 direction,
               );
+              // Hit target — annular sector slightly wider/taller than
+              // the bump, so fingers don't have to land precisely.
+              const hitPad = 0.08;
+              const hitPath = annularSectorPath(
+                anchorX,
+                anchorY,
+                outerRadius - 6,
+                outerRadius + resizeHandleHeight + 8,
+                handleAngle - baseHalf - hitPad,
+                handleAngle + baseHalf + hitPad,
+                direction,
+              );
+              // Two tangent grip lines on the bump's outer face — the
+              // "pullable" affordance. Each line is perpendicular to its
+              // own radius from the anchor (= parallel to the local arc
+              // tangent at that point). Placed within the topArc so they
+              // don't run off the top face onto the angled side cuts.
+              const gripTopRadius = outerRadius + resizeHandleHeight;
+              const gripAngularOffset = topHalf * 0.5;
+              const gripAngles = [
+                handleAngle - gripAngularOffset,
+                handleAngle + gripAngularOffset,
+              ];
+              const gripHalfLen = 4;
               return (
                 <g
                   onPointerDown={handleResizePointerDown}
                   style={{ cursor: 'grab', touchAction: 'none' }}
                 >
-                  <circle
-                    cx={handlePos.x}
-                    cy={handlePos.y}
-                    r={HANDLE_RADIUS + 12}
-                    fill="transparent"
+                  <path d={hitPath} fill="transparent" />
+                  <path
+                    d={bumpD}
+                    fill={`url(#${bumpGradientId})`}
+                    stroke={resizeHandleShadow}
+                    strokeWidth={spokeWidth}
+                    strokeLinejoin="round"
                   />
-                  <circle
-                    cx={handlePos.x}
-                    cy={handlePos.y}
-                    r={HANDLE_RADIUS}
-                    fill={triggerBg}
-                    stroke={triggerFg}
-                    strokeWidth={2}
-                  />
-                  <line
-                    x1={handlePos.x - 4}
-                    y1={handlePos.y - 2}
-                    x2={handlePos.x + 4}
-                    y2={handlePos.y - 2}
-                    stroke={triggerFg}
-                    strokeWidth={1.5}
-                    strokeLinecap="round"
-                  />
-                  <line
-                    x1={handlePos.x - 4}
-                    y1={handlePos.y + 2}
-                    x2={handlePos.x + 4}
-                    y2={handlePos.y + 2}
-                    stroke={triggerFg}
-                    strokeWidth={1.5}
-                    strokeLinecap="round"
-                  />
+                  {gripAngles.map((a, i) => {
+                    const p = polar(anchorX, anchorY, gripTopRadius, a, direction);
+                    // Tangent unit vector — see math note in bumpPath /
+                    // earlier tick implementation.
+                    const tx = direction * Math.cos(a);
+                    const ty = Math.sin(a);
+                    return (
+                      <line
+                        key={i}
+                        x1={p.x - tx * gripHalfLen}
+                        y1={p.y - ty * gripHalfLen}
+                        x2={p.x + tx * gripHalfLen}
+                        y2={p.y + ty * gripHalfLen}
+                        stroke={resizeHandleGrip}
+                        strokeWidth={1.5}
+                        strokeLinecap="round"
+                        style={{ pointerEvents: 'none' }}
+                      />
+                    );
+                  })}
                 </g>
               );
             })()}

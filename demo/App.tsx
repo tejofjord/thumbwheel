@@ -37,22 +37,192 @@ const ITEMS: ThumbwheelItem[] = [
   { id: 'login',     label: 'Sign in',   color: '#ece4d3', icon: <Icon d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" /> },
 ];
 
+const ITEM_COUNTS = [4, 6, 8, 10] as const;
+
+// Inline-styled range slider matching the segmented control's row
+// layout (label on the left, control in the middle, value on the right).
+function Slider(props: {
+  label: string;
+  min: number;
+  max: number;
+  step?: number;
+  value: number;
+  onChange: (v: number) => void;
+  unit?: string;
+}) {
+  const { label, min, max, step = 1, value, onChange, unit = '' } = props;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '32px' }}>
+      <span
+        style={{
+          fontSize: '11px',
+          color: '#78716c',
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          minWidth: '60px',
+        }}
+      >
+        {label}
+      </span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        style={{ flex: 1, accentColor: '#1c1917' }}
+      />
+      <span
+        style={{
+          fontSize: '12px',
+          color: '#44403c',
+          minWidth: '44px',
+          textAlign: 'right',
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {value}
+        {unit}
+      </span>
+    </div>
+  );
+}
+
+// Inline-styled segmented control. Each option is a button; the active
+// option is filled with the dark tone, others are outlined. No colored
+// edge stripes — pressed state is conveyed via fill swap, not accents.
+function Segmented<T extends string | number>(props: {
+  label: string;
+  options: readonly { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  const { label, options, value, onChange } = props;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '32px' }}>
+      <span
+        style={{
+          fontSize: '11px',
+          color: '#78716c',
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          minWidth: '60px',
+        }}
+      >
+        {label}
+      </span>
+      <div style={{ display: 'flex', border: '1px solid #d6d3d1', borderRadius: '6px', overflow: 'hidden' }}>
+        {options.map((opt, i) => {
+          const active = opt.value === value;
+          return (
+            <button
+              key={String(opt.value)}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              aria-pressed={active}
+              style={{
+                fontSize: '12px',
+                padding: '6px 12px',
+                background: active ? '#1c1917' : 'transparent',
+                color: active ? '#fafaf9' : '#44403c',
+                border: 'none',
+                borderLeft: i === 0 ? 'none' : '1px solid #d6d3d1',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontWeight: active ? 500 : 400,
+              }}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [lastTapped, setLastTapped] = useState<ThumbwheelItem | null>(null);
+  const [tickSound, setTickSound] = useState(true);
+  const [itemCount, setItemCount] = useState<(typeof ITEM_COUNTS)[number]>(10);
+  const [fixed, setFixed] = useState(false);
+  const [rows, setRows] = useState<1 | 2>(1);
+  const [bandWidth, setBandWidth] = useState(5);
+
+  const visibleItems = ITEMS.slice(0, itemCount);
 
   return (
     <div style={{ minHeight: '100vh', padding: '24px', maxWidth: '480px', margin: '0 auto' }}>
       <h1 style={{ fontSize: '22px', margin: '0 0 12px' }}>Thumbwheel demo</h1>
-      <p style={{ fontSize: '14px', lineHeight: 1.5, color: '#57534e', margin: '0 0 12px' }}>
-        Tap the round button (bottom-{lastTapped ? 'corner' : 'right by default'}) to open the
-        wheel. Drag the trigger sideways to dock it left or right. Spin the wheel by dragging
-        on the dim backdrop or directly on the wheel; flick to coast on momentum.
+      <p style={{ fontSize: '14px', lineHeight: 1.5, color: '#57534e', margin: '0 0 16px' }}>
+        Tap the round button to open the wheel. Drag the trigger sideways to dock
+        it on the other edge. Spin by dragging on the dim backdrop or directly on
+        the wheel; flick to coast. Drag the rim bump to resize.
       </p>
+
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          padding: '16px',
+          background: 'white',
+          border: '1px solid #e7e5e4',
+          borderRadius: '6px',
+          marginBottom: '12px',
+        }}
+      >
+        <Segmented
+          label="Sound"
+          value={tickSound ? 'on' : 'off'}
+          onChange={(v) => setTickSound(v === 'on')}
+          options={[
+            { value: 'on', label: 'On' },
+            { value: 'off', label: 'Off' },
+          ]}
+        />
+        <Segmented
+          label="Items"
+          value={itemCount}
+          onChange={setItemCount}
+          options={ITEM_COUNTS.map((n) => ({ value: n, label: String(n) }))}
+        />
+        <Segmented
+          label="Motion"
+          value={fixed ? 'fixed' : 'spin'}
+          onChange={(v) => setFixed(v === 'fixed')}
+          options={[
+            { value: 'spin', label: 'Spinning' },
+            { value: 'fixed', label: 'Fixed' },
+          ]}
+        />
+        <Segmented
+          label="Rows"
+          value={rows}
+          onChange={setRows}
+          options={[
+            { value: 1, label: '1 row' },
+            { value: 2, label: '2 rows' },
+          ]}
+        />
+        <Slider
+          label="Band"
+          min={0}
+          max={20}
+          step={1}
+          value={bandWidth}
+          onChange={setBandWidth}
+          unit="px"
+        />
+      </div>
+
       <div
         style={{
           padding: '16px',
           background: 'white',
           border: '1px solid #e7e5e4',
+          borderRadius: '6px',
           minHeight: '64px',
         }}
       >
@@ -68,7 +238,15 @@ export function App() {
         )}
       </div>
 
-      <Thumbwheel items={ITEMS} onSelect={setLastTapped} enableResize tickSound />
+      <Thumbwheel
+        items={visibleItems}
+        onSelect={setLastTapped}
+        enableResize
+        tickSound={tickSound}
+        fixed={fixed}
+        rows={rows}
+        geometry={{ outerBandWidth: bandWidth }}
+      />
     </div>
   );
 }
