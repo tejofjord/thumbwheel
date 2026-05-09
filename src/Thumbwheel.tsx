@@ -583,7 +583,12 @@ export function Thumbwheel(props: ThumbwheelProps) {
     return () => cancelAnimationFrame(id);
   }, [isOpen]);
 
-  // Lock body scroll + disable pull-to-refresh while open.
+  // Lock body scroll + disable pull-to-refresh + disable browser
+  // swipe-nav while open. `overscroll-behavior-x: none` on <html> blocks
+  // iOS Safari's edge-swipe-to-navigate gesture and Mac trackpad
+  // horizontal swipe-back; `overscroll-behavior-y: none` disables iOS
+  // pull-to-refresh; `position: fixed` + scroll restore prevents the
+  // page from scrolling under the backdrop.
   useEffect(() => {
     if (!isOpen || typeof document === 'undefined') return;
     const scrollY = window.scrollY;
@@ -592,18 +597,21 @@ export function Thumbwheel(props: ThumbwheelProps) {
     const originalPosition = document.body.style.position;
     const originalTop = document.body.style.top;
     const originalWidth = document.body.style.width;
-    const originalOverscroll = html.style.overscrollBehaviorY;
+    const originalOverscrollX = html.style.overscrollBehaviorX;
+    const originalOverscrollY = html.style.overscrollBehaviorY;
     document.body.style.overflow = 'hidden';
     document.body.style.position = 'fixed';
     document.body.style.top = `-${scrollY}px`;
     document.body.style.width = '100%';
+    html.style.overscrollBehaviorX = 'none';
     html.style.overscrollBehaviorY = 'none';
     return () => {
       document.body.style.overflow = originalOverflow;
       document.body.style.position = originalPosition;
       document.body.style.top = originalTop;
       document.body.style.width = originalWidth;
-      html.style.overscrollBehaviorY = originalOverscroll;
+      html.style.overscrollBehaviorX = originalOverscrollX;
+      html.style.overscrollBehaviorY = originalOverscrollY;
       window.scrollTo(0, scrollY);
     };
   }, [isOpen]);
