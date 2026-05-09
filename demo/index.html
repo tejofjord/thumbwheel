@@ -18,8 +18,22 @@
         margin: 0;
         padding: 0;
         height: 100%;
-        background: #fafaf9;
         color: #1c1917;
+      }
+      /* The page uses viewport-fit=cover (required so the Thumbwheel's
+         100lvh wrapper can extend behind iOS Safari's bottom address
+         bar). That removes iOS's auto safe-area padding, which means a
+         simple body bg would paint behind the address bar — looking
+         like a "solid bottom bar" of page color. background-clip:
+         content-box + padding-bottom: env(safe-area-inset-bottom)
+         keeps the body bg above the safe area, so iOS's natural chrome
+         shows through underneath the address bar like on non-cover
+         pages. The wheel is position:fixed and unaffected. */
+      body {
+        background-color: #fafaf9;
+        background-clip: content-box;
+        padding-bottom: env(safe-area-inset-bottom);
+        box-sizing: border-box;
       }
     </style>
   </head>
