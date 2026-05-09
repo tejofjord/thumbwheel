@@ -121,6 +121,34 @@ function bumpPath(
   ].join(' ');
 }
 
+// Fan-unfold polygon for the open animation. Approximates a wedge
+// hinged at `hingeAngle` (the edge that does NOT move) opening toward
+// `hingeAngle - arcAngle` (the edge that swings out). With
+// `arcAngle === 0` all sample points stack at `hingeAngle` — the wedge
+// is collapsed to its hinge. CSS `clip-path: polygon(...)` interpolates
+// point-by-point linearly, so each sample point's trajectory is from
+// `hingeAngle` (closed) to `hingeAngle - (i/N) * arcAngle` (open):
+// point 0 doesn't move (it's at the hinge in both states), point N
+// sweeps the full arc. The result is a fan unfolding from the hinge
+// edge. ~24 samples gives a smooth arc curve.
+function fanWedgePolygon(
+  cx: number,
+  cy: number,
+  r: number,
+  arcAngle: number,
+  hingeAngle: number,
+  direction: 1 | -1,
+  samples: number = 24,
+): string {
+  const pts: string[] = [`${cx}px ${cy}px`];
+  for (let i = 0; i <= samples; i++) {
+    const a = hingeAngle - (i / samples) * arcAngle;
+    const p = polar(cx, cy, r, a, direction);
+    pts.push(`${p.x}px ${p.y}px`);
+  }
+  return `polygon(${pts.join(', ')})`;
+}
+
 function wedgeClipPath(
   cx: number,
   cy: number,
@@ -195,7 +223,7 @@ export function Thumbwheel(props: ThumbwheelProps) {
 
   const baseInnerRadius = geometry.innerRadius ?? DEFAULT_INNER_RADIUS;
   const baseOuterRadius = geometry.outerRadius ?? DEFAULT_OUTER_RADIUS;
-  const visibleArc = geometry.visibleArc ?? DEFAULT_VISIBLE_ARC;
+  const configuredVisibleArc = geometry.visibleArc ?? DEFAULT_VISIBLE_ARC;
   const triggerSize = geometry.triggerSize ?? DEFAULT_TRIGGER_SIZE;
   const edgeInset = geometry.edgeInset ?? DEFAULT_EDGE_INSET;
   const anchorInset = geometry.anchorInset ?? DEFAULT_ANCHOR_INSET;
@@ -245,7 +273,13 @@ export function Thumbwheel(props: ThumbwheelProps) {
   // the wider outer radius). Each ring keeps its own angular step so the
   // counts can differ — visual misalignment between rings during a spin
   // is intentional knurled-wheel texture, not a bug.
-  const ringCount: 1 | 2 = rows === 2 ? 2 : 1;
+  // 2-row mode is only meaningful for static/non-spinning menus where
+  // every option is visible at once. In spin mode the inner ring would
+  // scroll past the visible arc together with the outer, defeating the
+  // "all options shown" intent — so we silently coerce to 1 row when
+  // `fixed` is false. Consumers can still pass `rows={2}` unconditionally;
+  // it just has no effect outside fixed mode.
+  const ringCount: 1 | 2 = fixed && rows === 2 ? 2 : 1;
   const itemRings = useMemo<ThumbwheelItem[][]>(() => {
     if (ringCount === 1) return [items];
     const split = Math.ceil(items.length / 2);
@@ -253,6 +287,13 @@ export function Thumbwheel(props: ThumbwheelProps) {
   }, [items, ringCount]);
 
   const [isOpen, setIsOpen] = useState(false);
+  // `wipeOpen` lags `isOpen` by one rAF so the open-wipe CSS transition
+  // has a "from" frame (radius 0, just-mounted) and a "to" frame (full
+  // radius) to interpolate between. Without the rAF gap, React would
+  // render both states inside one paint and the browser would skip the
+  // transition entirely. Reset to false on close so a fresh open
+  // re-runs the wipe.
+  const [wipeOpen, setWipeOpen] = useState(false);
   const [spinOffset, setSpinOffset] = useState(0);
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const [dock, setDock] = useState<ThumbwheelDock>(defaultDock);
@@ -284,6 +325,47 @@ export function Thumbwheel(props: ThumbwheelProps) {
   const innerRadius = Math.max(0, outerRadius - ringBandThickness);
   const outerRadiusRef = useRef(outerRadius);
   const radiusStorageKey = `${storageKey}${RESIZE_STORAGE_SUFFIX}`;
+
+  // Effective visible arc.
+  //
+  // Spin mode: equal to the configured `geometry.visibleArc` — the
+  // wheel always shows a fixed-size viewport on a 2π reel of items.
+  //
+  // Fixed mode: auto-adjusted to keep sector aspect ratio at or below
+  // `maxItemAspectRatio` at the outer rim of every ring. Since fixed
+  // mode shows every item at once with no repetition, the only way to
+  // bound sector width is to control the visible arc itself. The
+  // most-constrained ring (largest required arc) sets the floor;
+  // result is clamped to [π/4, 3π/2] so the wheel can't degenerate
+  // into a sliver or wrap past the corner-anchor's natural sweep.
+  // When `maxItemAspectRatio` is non-finite, this auto-fit is bypassed
+  // and the configured arc is used verbatim.
+  const visibleArc = useMemo(() => {
+    if (!fixed) return configuredVisibleArc;
+    if (!isFinite(maxItemAspectRatio) || maxItemAspectRatio <= 0) {
+      return configuredVisibleArc;
+    }
+    const bandThickness = (outerRadius - innerRadius) / ringCount;
+    let required = 0;
+    itemRings.forEach((rItems, i) => {
+      if (rItems.length === 0) return;
+      const ringROut = outerRadius - i * bandThickness;
+      if (ringROut <= 0) return;
+      const ringRequired =
+        (rItems.length * maxItemAspectRatio * bandThickness) / ringROut;
+      if (ringRequired > required) required = ringRequired;
+    });
+    if (required === 0) return configuredVisibleArc;
+    return Math.max(Math.PI / 4, Math.min(Math.PI * 1.5, required));
+  }, [
+    fixed,
+    configuredVisibleArc,
+    outerRadius,
+    innerRadius,
+    ringCount,
+    itemRings,
+    maxItemAspectRatio,
+  ]);
 
   // Per-ring rendering plan. Bundles everything the render path needs:
   // resolved (rIn, rOut), the angular step, and the array of items to
@@ -485,6 +567,20 @@ export function Thumbwheel(props: ThumbwheelProps) {
         momentumFrameRef.current = null;
       }
     };
+  }, [isOpen]);
+
+  // Drive the open-wipe transition: on open, mount with `wipeOpen=false`
+  // (radius 0), then flip to true on the next animation frame so the
+  // browser sees two distinct frame values and runs the CSS transition
+  // between them. On close, reset immediately so the next open starts
+  // from radius 0 again.
+  useEffect(() => {
+    if (!isOpen) {
+      setWipeOpen(false);
+      return;
+    }
+    const id = requestAnimationFrame(() => setWipeOpen(true));
+    return () => cancelAnimationFrame(id);
   }, [isOpen]);
 
   // Lock body scroll + disable pull-to-refresh while open.
@@ -805,7 +901,30 @@ export function Thumbwheel(props: ThumbwheelProps) {
         {isOpen ? closeIcon : triggerIcon}
       </button>
 
-      {isOpen && (
+      {isOpen && (() => {
+        // Fan-unfold open animation. Only the SVG (the wheel) is wedge-
+        // clipped — the backdrop blur is left full-screen so it reads
+        // as page chrome that's already settled, while the wheel itself
+        // hinges open from the corner anchor. The hinge sits at the
+        // `visibleArc` edge (the lower / horizontal-ish edge of the
+        // wedge — closer to "the bottom" of the wheel), so the
+        // angle-0 edge (vertical along the dock side) is the swinging
+        // edge. Visually: the wedge starts collapsed against the bottom
+        // edge and opens upward toward the screen side. Sectors are
+        // revealed in order as the wedge sweeps past them. The polygon's
+        // outer radius is the screen diagonal so the wedge always
+        // covers the full SVG viewport.
+        const fanRadius = Math.hypot(viewport.w, viewport.h);
+        const fanArcAngle = wipeOpen ? visibleArc : 0;
+        const fanClipPath = fanWedgePolygon(
+          anchorX,
+          anchorY,
+          fanRadius,
+          fanArcAngle,
+          visibleArc,
+          direction,
+        );
+        return (
         <div
           onClick={handleBackdropClick}
           onPointerDown={handleSpinPointerDown}
@@ -842,6 +961,10 @@ export function Thumbwheel(props: ThumbwheelProps) {
               inset: 0,
               width: '100%',
               height: '100%',
+              clipPath: fanClipPath,
+              WebkitClipPath: fanClipPath,
+              transition:
+                'clip-path 400ms cubic-bezier(0.2, 0.8, 0.2, 1), -webkit-clip-path 400ms cubic-bezier(0.2, 0.8, 0.2, 1)',
             }}
             viewBox={`0 0 ${viewport.w} ${viewport.h}`}
           >
@@ -1150,7 +1273,8 @@ export function Thumbwheel(props: ThumbwheelProps) {
             })()}
           </svg>
         </div>
-      )}
+        );
+      })()}
     </>
   );
 }

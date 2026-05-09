@@ -191,6 +191,10 @@ export interface ThumbwheelProps {
    * ring from `innerRadius` to `outerRadius`. `2` splits the band in
    * half: items[0..ceil(N/2)) go on the outer ring, items[ceil(N/2)..N)
    * on the inner ring. Each ring uses its own angular step.
+   *
+   * Only takes effect when `fixed` is `true` — 2-row mode is intended
+   * for static menus where every option is visible at once. In spin
+   * mode the value is silently coerced to 1.
    */
   rows?: 1 | 2;
 
@@ -204,15 +208,19 @@ export interface ThumbwheelProps {
 
   /**
    * Maximum sector aspect ratio (`arc length / band thickness`) at the
-   * outer rim, in spin mode only. When the natural angular step
-   * (`2π / items.length`) would produce sectors wider than this, items
-   * are repeated around the full 360° to fill more, smaller slots —
-   * each item appears at multiple angles around the wheel. The wheel
-   * still functions normally; tapping any instance of an item fires
-   * the same `onSelect`. Default `1.0` (square sectors). Has no effect
-   * in `fixed` mode (where items always span exactly `visibleArc`).
-   * Set to `Infinity` to disable the cap and let sectors be arbitrarily
-   * wide.
+   * outer rim. Default `1.0` (square sectors).
+   *
+   * - Spin mode: when the natural angular step (`2π / items.length`)
+   *   would produce sectors wider than this, items are repeated around
+   *   the full 360° to fill more, smaller slots — each item appears at
+   *   multiple angles around the wheel.
+   * - Fixed mode: the configured `visibleArc` is auto-adjusted to fit
+   *   items at this ratio (clamped to [π/4, 3π/2]). The most-constrained
+   *   ring sets the floor; the wheel grows or shrinks angularly to
+   *   match.
+   *
+   * Set to `Infinity` to disable the cap entirely (and use the
+   * configured `visibleArc` as-is in fixed mode).
    */
   maxItemAspectRatio?: number;
 

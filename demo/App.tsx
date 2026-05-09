@@ -197,15 +197,20 @@ export function App() {
             { value: 'fixed', label: 'Fixed' },
           ]}
         />
-        <Segmented
-          label="Rows"
-          value={rows}
-          onChange={setRows}
-          options={[
-            { value: 1, label: '1 row' },
-            { value: 2, label: '2 rows' },
-          ]}
-        />
+        {/* Rows control only appears in fixed mode — 2-row layouts are
+            intended for static menus where every option is visible at
+            once, not for spinning wheels. */}
+        {fixed && (
+          <Segmented
+            label="Rows"
+            value={rows}
+            onChange={setRows}
+            options={[
+              { value: 1, label: '1 row' },
+              { value: 2, label: '2 rows' },
+            ]}
+          />
+        )}
         <Slider
           label="Band"
           min={0}
