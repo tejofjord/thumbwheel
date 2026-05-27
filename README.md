@@ -3,6 +3,8 @@
 Thumb-anchored radial wheel UI for one-handed mobile navigation. SVG sectors with radial spokes and arcs, momentum-spin gesture, dock-snapping trigger button.
 
 > Status: pre-1.0. API surface may shift. Battle-tested on iOS Safari.
+>
+> Live demo: **https://thumbwheel.vercel.app** — open on a phone for the intended one-handed feel.
 
 ## Install
 
