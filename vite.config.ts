@@ -5,8 +5,12 @@ import path from 'node:path';
 // Vite config for the demo app. The library itself is built with tsup
 // (see tsup.config.ts). This is purely for `npm run dev` to spin up a
 // local demo of the wheel for visual iteration.
+// Subpath deploys (e.g. tejofjord.com/thumbwheel/) need a non-root
+// base so asset URLs in the built index.html resolve correctly.
+// Standalone deploys (thumbwheel.vercel.app) leave DEMO_BASE unset.
 export default defineConfig({
   root: 'demo',
+  base: process.env.DEMO_BASE ?? '/',
   plugins: [react()],
   resolve: {
     alias: {

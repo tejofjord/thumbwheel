@@ -39,6 +39,7 @@
     "build": "tsup",
     "dev": "vite",
     "demo:build": "vite build",
+    "demo:build:subpath": "DEMO_BASE=/thumbwheel/ vite build",
     "demo:preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
