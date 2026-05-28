@@ -4,7 +4,7 @@ Thumb-anchored radial wheel UI for one-handed mobile navigation. SVG sectors wit
 
 > Status: pre-1.0. API surface may shift. Battle-tested on iOS Safari.
 >
-> Live demo: **https://thumbwheel.vercel.app** — open on a phone for the intended one-handed feel.
+> Live demo: **https://tejofjord.com/thumbwheel** — open on a phone for the intended one-handed feel.
 
 ## Install
 
