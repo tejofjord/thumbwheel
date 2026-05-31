@@ -314,6 +314,13 @@ export function Thumbwheel(props: ThumbwheelProps) {
   const momentumFrameRef = useRef<number | null>(null);
   const triggerXRef = useRef(triggerX);
 
+  // Anchor point measured from a DOM element at the dock corner
+  // (see effect below). Used in place of viewport-derived coordinates
+  // so the radial origin tracks the actual visible bottom edge in
+  // every browser, not just where `100lvh` happens to land.
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const [anchorPos, setAnchorPos] = useState({ x: 0, y: 0 });
+
   // User-resizable radius (only mutated when `enableResize` is true).
   // Outer is the draggable knob; inner stays a FIXED radial distance
   // from outer (the band thickness is constant — the wheel does not
@@ -552,6 +559,36 @@ export function Thumbwheel(props: ThumbwheelProps) {
     };
   }, []);
 
+  // Measure the DOM anchor's position. A fixed-positioned element with
+  // `bottom: anchorInset` is anchored by the browser to the actual
+  // layout viewport's bottom edge, regardless of how lvh / svh /
+  // visualViewport differ. Reading getBoundingClientRect yields a
+  // coordinate in the SVG's space (which still spans 0 .. lvh).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const update = () => {
+      const el = anchorRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const nextX = rect.left;
+      const nextY = rect.top;
+      setAnchorPos((prev) =>
+        prev.x === nextX && prev.y === nextY ? prev : { x: nextX, y: nextY },
+      );
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, { passive: true });
+    window.visualViewport?.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('scroll', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update);
+      window.visualViewport?.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('scroll', update);
+    };
+  }, [dock, anchorInset, viewport.w, viewport.h]);
+
   // Stop momentum on close + on unmount.
   useEffect(() => {
     if (!isOpen) {
@@ -631,8 +668,8 @@ export function Thumbwheel(props: ThumbwheelProps) {
   }, [viewport.w, dock, snapPoints, isTriggerDragging]);
 
   const isLeftDock = dock === 'left';
-  const anchorX = isLeftDock ? anchorInset : viewport.w - anchorInset;
-  const anchorY = viewport.h - anchorInset;
+  const anchorX = anchorPos.x;
+  const anchorY = anchorPos.y;
   const direction: 1 | -1 = isLeftDock ? 1 : -1;
 
   const angleFromAnchor = (clientX: number, clientY: number) => {
@@ -877,6 +914,19 @@ export function Thumbwheel(props: ThumbwheelProps) {
 
   return (
     <>
+      <div
+        ref={anchorRef}
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          bottom: `${anchorInset}px`,
+          left: isLeftDock ? `${anchorInset}px` : 'auto',
+          right: isLeftDock ? 'auto' : `${anchorInset}px`,
+          width: 0,
+          height: 0,
+          pointerEvents: 'none',
+        }}
+      />
       <button
         type="button"
         onPointerDown={handleTriggerPointerDown}
