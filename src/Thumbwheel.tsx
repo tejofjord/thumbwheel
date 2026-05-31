@@ -570,7 +570,11 @@ export function Thumbwheel(props: ThumbwheelProps) {
       const el = anchorRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      setAnchorPos({ x: rect.left, y: rect.top });
+      const nextX = rect.left;
+      const nextY = rect.top;
+      setAnchorPos((prev) =>
+        prev.x === nextX && prev.y === nextY ? prev : { x: nextX, y: nextY },
+      );
     };
     update();
     window.addEventListener('resize', update);
